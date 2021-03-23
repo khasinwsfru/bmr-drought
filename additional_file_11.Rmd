@@ -1,0 +1,803 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(GenomicFeatures)
+library(WGCNA); enableWGCNAThreads(n=18)
+library(DESeq2)
+library(BiocParallel)
+library(parallel)
+library(tximport)
+library(ggplot2)
+library(tidyverse)
+library(tximportData)
+library(AnnotationDbi)
+library(RColorBrewer)
+Colors=rev(brewer.pal(11,"Spectral"))
+library(cowplot)
+```
+
+Computing parameters.
+```{r}
+enableWGCNAThreads(nThreads=detectCores() - 2)
+register(MulticoreParam(18))
+```
+
+Make the gene-to-transcript table.
+```{r}
+txdb <- makeTxDbFromGFF("/Sbicolor/v3.1.1/annotation/Sbicolor_454_v3.1.1.gene_exons.gff3")
+keytypes(txdb) #Options are "CDSID"    "CDSNAME"  "EXONID"   "EXONNAME" "GENEID"   "TXID"     "TXNAME" 
+k <- keys(txdb, keytype = "TXNAME")
+transcripts <- AnnotationDbi::select(txdb, k, "GENEID", "TXNAME")
+colnames(transcripts) <- c('target_id', 'gene_id')
+```
+
+```{r}
+expt1 <- c("bmr12_fus_dry_0_a","bmr12_fus_dry_0_b","bmr12_fus_dry_13_a","bmr12_fus_dry_13_b","bmr12_fus_dry_13_c","bmr12_fus_dry_13_d","bmr12_fus_wet_0_a","bmr12_fus_wet_0_b","bmr12_fus_wet_13_a","bmr12_fus_wet_13_c","bmr12_fus_wet_13_d","bmr12_pdb_dry_0_a","bmr12_pdb_dry_0_b","bmr12_pdb_dry_13_a","bmr12_pdb_dry_13_b","bmr12_pdb_dry_13_c","bmr12_pdb_wet_0_a","bmr12_pdb_wet_0_b","bmr12_pdb_wet_13_a","bmr12_pdb_wet_13_b","bmr12_pdb_wet_13_c","bmr12_pdb_wet_13_d","wt_fus_dry_0_a","wt_fus_dry_0_b","wt_fus_dry_13_a","wt_fus_dry_13_b","wt_fus_dry_13_c","wt_fus_dry_13_d","wt_fus_wet_0_a","wt_fus_wet_0_b","wt_fus_wet_13_a","wt_fus_wet_13_b","wt_fus_wet_13_c","wt_fus_wet_13_d","wt_pdb_dry_0_a","wt_pdb_dry_0_b","wt_pdb_dry_13_a","wt_pdb_dry_13_c","wt_pdb_dry_13_d","wt_pdb_wet_0_a","wt_pdb_wet_0_b","wt_pdb_wet_13_a","wt_pdb_wet_13_b","wt_pdb_wet_13_c","wt_pdb_wet_13_d")
+expt2 <- c("bmr12_fus_dry_3_a","bmr12_fus_dry_3_b","bmr12_fus_dry_3_c","bmr12_fus_dry_3_d","bmr12_fus_wet_3_a","bmr12_fus_wet_3_b","bmr12_fus_wet_3_c","bmr12_fus_wet_3_d","bmr12_macro_dry_3_a","bmr12_macro_dry_3_b","bmr12_macro_dry_3_c","bmr12_macro_dry_3_d","bmr12_macro_wet_3_a","bmr12_macro_wet_3_b","bmr12_macro_wet_3_c","bmr12_macro_wet_3_d","bmr12_pdb_dry_3_a","bmr12_pdb_dry_3_b","bmr12_pdb_dry_3_c","bmr12_pdb_dry_3_d","bmr12_pdb_wet_3_a","bmr12_pdb_wet_3_b","bmr12_pdb_wet_3_c","bmr12_pdb_wet_3_d","bmr6_fus_dry_3_a","bmr6_fus_dry_3_b","bmr6_fus_dry_3_c","bmr6_fus_dry_3_d","bmr6_fus_wet_3_a","bmr6_fus_wet_3_b","bmr6_fus_wet_3_c","bmr6_fus_wet_3_d","bmr6_macro_dry_3_a","bmr6_macro_dry_3_b","bmr6_macro_dry_3_c","bmr6_macro_dry_3_d","bmr6_macro_wet_3_a","bmr6_macro_wet_3_b","bmr6_macro_wet_3_c","bmr6_macro_wet_3_d","bmr6_pdb_dry_3_a","bmr6_pdb_dry_3_b","bmr6_pdb_dry_3_c","bmr6_pdb_dry_3_d","bmr6_pdb_wet_3_d","bmr6_pdb_wet_a","bmr6_pdb_wet_b","bmr6_pdb_wet_c","wt_fus_dry_3_a","wt_fus_dry_3_b","wt_fus_dry_3_c","wt_fus_dry_3_d","wt_fus_wet_3_a","wt_fus_wet_3_b","wt_fus_wet_3_c","wt_fus_wet_3_d","wt_macro_dry_3_a","wt_macro_dry_3_b","wt_macro_dry_3_c","wt_macro_dry_3_d","wt_macro_wet_3_a","wt_macro_wet_3_b","wt_macro_wet_3_c","wt_macro_wet_3_d","wt_pdb_dry_3_a","wt_pdb_dry_3_b","wt_pdb_dry_3_c","wt_pdb_dry_3_d","wt_pdb_wet_3_a","wt_pdb_wet_3_b","wt_pdb_wet_3_c","wt_pdb_wet_3_d")
+expt3 <-c("bmr12_pdb_wet_3_e","bmr12_pdb_wet_3_f","bmr6_pdb_dry_3_e","bmr6_pdb_dry_3_f","bmr6_pdb_wet_3_e","wt_pdb_dry_3_e","wt_pdb_dry_3_f","wt_pdb_dry_3_g","wt_pdb_wet_3_e","wt_pdb_wet_3_f","wt_pdb_wet_3_g","wt_pdb_wet_3_h")
+```
+
+Store paths to abundance.tsv files in some variables.
+```{r}
+exp_string1 <- "/run1cat/trim/kquant/"
+exp_string2 <- "/run2cat/trim/kquant/"
+exp_string3 <- "/run3cat/trim/kquant/"
+files1 <- file.path(exp_string1, expt1, 'abundance.h5')
+names(files1) <- expt1
+files2 <- file.path(exp_string2, expt2, 'abundance.h5')
+names(files2) <- expt2
+files3 <- file.path(exp_string3, expt3, 'abundance.h5')
+names(files3) <- expt3
+```
+
+Import reads, and summarize to gene-level using tximport.
+```{r}
+txitx <- tximport(files = c(files1, files2, files3), type="kallisto", tx2gene = transcripts, countsFromAbundance = "no")
+#head(txitx$counts)
+
+```
+
+Read in design matrix. 
+```{r}
+targets2 <- read.table(design-final.csv, sep=',' , header=TRUE)
+condition <- relevel(factor(targets2$condition), ref="pdb_wet_0")
+gt <- relevel(factor(targets2$gt), ref="wt")
+disease <- relevel(factor(targets2$disease), ref="pdb")
+water <- relevel(factor(targets2$water), ref="dry")
+day <- relevel(factor(targets2$day), ref="0")
+design<- model.matrix(~0 + condition); rownames(design) <- targets2$sample
+```
+
+```{r}
+sampleTable <- targets2
+rownames(sampleTable) <- targets2$sample
+```
+
+
+```{r}
+#df <- txitx$counts
+#df <- df[, rownames(sampleTable)]
+rownames(sampleTable) %in% colnames(txitx$counts) #TRUE
+rownames(sampleTable) == colnames(txitx$counts) #FALSE
+txitx$counts <- txitx$counts[, rownames(sampleTable)]
+rownames(sampleTable) == colnames(txitx$counts) #TRUE now
+```
+
+
+DESeq2 normalization
+```{r}
+dds <- DESeqDataSetFromMatrix(round(txitx$counts), sampleTable, ~condition)
+```
+Cursory filtration.
+```{r}
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+table(keep)
+```
+
+Extract transformed data
+```{r}
+vsd <- vst(dds, blind=FALSE)
+ds2.counts <- assay(vsd)
+tcounts <- t(ds2.counts)
+```
+subset samples
+```{r}
+bmr12 <- ds2.counts[, 1:48]; bmr12 <- t(bmr12)
+bmr6 <- ds2.counts[,49:75]; bmr6 <- t(bmr6)
+wt <- ds2.counts[,76:129]; wt <- t(wt)
+
+day0 <- ds2.counts[, c(1,2,11,12,28,29,37,38,76,77,86,87,104,105,116,117)]; day0 <- t(day0)
+day13 <- ds2.counts[, c(3:6, 13:15, 30:32, 39:42, 78:81, 88:91, 106:108, 118:121)]; day13 <- t(day13)
+day3 <- ds2.counts[, c(7:9, 10, 16:27, 33:36, 43:75, 82:85, 92:103, 109:115, 122:129)]; day3 <- t(day3)
+```
+
+```{r}
+sampleTree = hclust(dist(tcounts));
+sizeGrWindow(12,9)
+pdf(file = "sample-clustering-matrix.pdf", width = 12, height = 9);
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree, main = "Sample clustering to detect outliers - drought", sub="", xlab="", cex.lab = 1.5,
+cex.axis = 1.5, cex.main = 2)
+abline(h = 200, col = "red");
+dev.off()
+
+traitData=read.table("wgcna-traits.csv", sep=",", header=TRUE)
+dim(traitData); names(traitData)
+mySamples <- traitData[,1]
+traitRows <- match(mySamples, traitData$sample)
+datTraits <- traitData[traitRows, -1]
+rownames(datTraits) <- mySamples
+sampleTree2 = hclust(dist(tcounts));
+traitColors <- numbers2colors(datTraits, signed = T);
+sizeGrWindow(12,9)
+pdf(file = "signed.pdf", width = 12, height = 9);
+plotDendroAndColors(sampleTree2, colors = traitColors,
+groupLabels = names(datTraits),
+main = "Sample dendrogram and trait heatmap - 0");
+dev.off()
+
+```
+
+This is straight from the tutorial  (https://horvath.genetics.ucla.edu/html/CoexpressionNetwork/Rpackages/WGCNA/Tutorials/)
+```{r}
+# We work with three sets:
+nSets = 3
+# For easier labeling of plots, create a vector holding descriptive names of the two sets.
+setLabels = c("day0", "day3", "day13")
+# Form multi-set expression data: columns starting from 9 contain actual expression data.
+multiExprday = vector(mode = "list", length = nSets)
+multiExprday[[1]] = list(data = as.data.frame(day0))
+names(multiExprday[[1]]$data) = colnames(day0)
+#rownames(multiExprday[[1]]$data) = rownames(datTraitswt)
+multiExprday[[2]] = list(data = as.data.frame(day3))
+names(multiExprday[[2]]$data) = colnames(day3)
+#rownames(multiExprday[[2]]$data) = rownames(datTraitsbmr12)
+multiExprday[[3]] = list(data = as.data.frame(day13))
+names(multiExprday[[3]]$data) = colnames(day13)
+#rownames(multiExprday[[3]]$data) = rownames(datTraitsbmr6)
+# Check that the data has the correct format for many functions operating on multiple sets:
+exprSize = checkSets(multiExprday)
+```
+
+
+```{r}
+gsg = goodSamplesGenesMS(multiExprday, verbose = 3);
+gsg$allOK
+sampleTrees = list()
+for (set in 1:nSets)
+{
+sampleTrees[[set]] = hclust(dist(multiExprday[[set]]$data), method = "average")
+}
+```
+
+Remove genes with too high variance or too few counts
+```{r}
+if (!gsg$allOK)
+{
+# Print information about the removed genes:
+if (sum(!gsg$goodGenes) > 0)
+printFlush(paste("Removing genes:", paste(names(multiExprday[[1]]$data)[!gsg$goodGenes],
+collapse = ", ")))
+for (set in 1:exprSize$nSets)
+{
+2
+if (sum(!gsg$goodSamples[[set]]))
+printFlush(paste("In set", setLabels[set], "removing samples",
+paste(rownames(multiExprday[[set]]$data)[!gsg$goodSamples[[set]]], collapse = ", ")))
+# Remove the offending genes and samples
+multiExprday[[set]]$data = multiExprday[[set]]$data[gsg$goodSamples[[set]], gsg$goodGenes];
+}
+# Update exprSize
+exprSize = checkSets(multiExprday)
+}
+```
+
+```{r}
+sampleTrees = list()
+for (set in 1:nSets)
+{
+sampleTrees[[set]] = hclust(dist(multiExprday[[set]]$data), method = "average")
+}
+pdf(file = "sampleclust.pdf", width = 12, height = 12);
+par(mfrow=c(2,1))
+par(mar = c(0, 4, 2, 0))
+for (set in 1:nSets)
+plot(sampleTrees[[set]], main = paste("Sample clustering on all genes", setLabels[set]),
+xlab="", sub="", cex = 0.7);
+dev.off()
+```
+
+```{r}
+Traits = vector(mode="list", length = nSets);
+for (set in 1:nSets)
+{
+setSamples = rownames(multiExprday[[set]]$data);
+traitRows = match(setSamples, traitData$sample);
+Traits[[set]] = list(data = traitData[traitRows, -1]);
+rownames(Traits[[set]]$data) = traitData[traitRows, 1];
+}
+collectGarbage();
+# Define data set dimensions
+nGenes = exprSize$nGenes;
+nSamples = exprSize$nSamples
+```
+
+
+```{r}
+# Choose a set of soft-thresholding powers
+powers = c(seq(3,10,by=1), seq(12,20, by=2));
+# Initialize a list to hold the results of scale-free analysis
+powerTables = vector(mode = "list", length = nSets);
+# Call the network topology analysis function for each set in turn
+for (set in 1:nSets)
+  powerTables[[set]] = list(data = pickSoftThreshold(multiExprday[[set]]$data, powerVector=powers,
+                                                     verbose = 2)[[2]]);
+collectGarbage();
+# Plot the results:
+colors = c("black", "red", "blue")
+# Will plot these columns of the returned scale free analysis tables
+plotCols = c(2,5,6,7)
+colNames = c("Scale Free Topology Model Fit", "Mean connectivity", "Median connectivity",
+"Max connectivity");
+# Get the minima and maxima of the plotted points
+ylim = matrix(NA, nrow = 2, ncol = 4);
+for (set in 1:nSets)
+{
+  for (col in 1:length(plotCols))
+  {
+    ylim[1, col] = min(ylim[1, col], powerTables[[set]]$data[, plotCols[col]], na.rm = TRUE);
+    ylim[2, col] = max(ylim[2, col], powerTables[[set]]$data[, plotCols[col]], na.rm = TRUE);
+  }
+}
+# Plot the quantities in the chosen columns vs. the soft thresholding power
+sizeGrWindow(8, 6)
+pdf(file = "scaleFreeAnalysis-ds2norm-day.pdf", wi = 8, he = 6)
+par(mfcol = c(2,2));
+par(mar = c(4.2, 4.2 , 2.2, 0.5))
+cex1 = 0.7;
+for (col in 1:length(plotCols)) for (set in 1:nSets)
+{
+  if (set==1)
+  {
+    plot(powerTables[[set]]$data[,1], -sign(powerTables[[set]]$data[,3])*powerTables[[set]]$data[,2],
+         xlab="Soft Threshold (power)",ylab=colNames[col],type="n", ylim = ylim[, col],
+         main = colNames[col]);
+    addGrid();
+  }
+  if (col==1)
+  {
+    text(powerTables[[set]]$data[,1], -sign(powerTables[[set]]$data[,3])*powerTables[[set]]$data[,2],
+         labels=powers,cex=cex1,col=colors[set]);
+  } else
+    text(powerTables[[set]]$data[,1], powerTables[[set]]$data[,plotCols[col]],
+         labels=powers,cex=cex1,col=colors[set]);
+  if (col==1)
+  {
+    legend("bottomright", legend = setLabels, col = colors, pch = 20) ;
+  } else
+    legend("topright", legend = setLabels, col = colors, pch = 20) ;
+}
+dev.off()
+```
+
+```{r}
+consF = blockwiseConsensusModules(multiExprday, power = 12,
+                                  networkType = "signed",
+TOMType = "signed", minModuleSize = 75, deepSplit=2, #med sensitive to module splitting
+#reassignThreshold = let's leave this  to default unless we need to mess with it.
+mergeCutHeight = 0.2,
+maxPOutliers = 0.05,
+corType="bicor",
+numericLabels = TRUE, 
+maxBlockSize = 25000,
+pamRespectsDendro = FALSE,
+#minKMEtoStay = let's leave this  to default unless we need to mess with it.
+saveTOMs = TRUE,
+saveTOMFileBase = "consF2.c",
+      saveIndividualTOMs = TRUE,
+      individualTOMFileNames = "consF2.c.individualTOM-Set%s-Block%b.RData",
+      saveConsensusTOMS = TRUE,
+      consensusTOMFilePattern = "consF2.c.consensusTOM-block.%b.RData",
+returnTOMs = TRUE,
+networkCalibration = "full quantile",
+robustY=FALSE,
+verbose = 5)
+```
+
+
+```{r}
+consMEs = consF$multiMEs;
+moduleLabels = consF$colors;
+# Convert the numeric labels to color labels
+moduleColors = labels2colors(moduleLabels)
+consTree = consF$dendrograms[[1]] 
+```
+
+```{r}
+moduleTraitCor = list();
+moduleTraitPvalue = list();
+# Calculate the correlations
+for (set in 1:nSets)
+{
+  moduleTraitCor[[set]] = cor(consMEs[[set]]$data, Traits[[set]]$data, use = "p");
+  moduleTraitPvalue[[set]] = corPvalueFisher(moduleTraitCor[[set]], exprSize$nSamples[set]);
+}
+```
+
+```{r}
+
+####SUPPLEMENTARY FIGURE S2#####
+
+MEColors = labels2colors(as.numeric(substring(names(consMEs[[1]]$data), 3)));
+MEColorNames = paste("ME", MEColors, sep="");
+# Open a suitably sized window (the user should change the window size if necessary)
+sizeGrWindow(10,7)
+pdf(file = "help0.pdf", wi = 10, he = 7);
+# Plot the module-trait relationship table for set number 1
+set = 1
+textMatrix =  paste(signif(moduleTraitCor[[set]], 2), "\n(",
+                           signif(moduleTraitPvalue[[set]], 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor[[set]])
+par(mar = c(6, 8.8, 3, 2.2));
+labeledHeatmap(Matrix = moduleTraitCor[[set]],
+               xLabels = names(Traits[[set]]$data),
+               yLabels = MEColorNames,
+               ySymbols = MEColorNames,
+               colorLabels = FALSE,
+               colors = blueWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.3,
+               zlim = c(-1,1),
+               main = paste("Module--trait relationships in", setLabels[set]))
+dev.off();
+# Plot the module-trait relationship table for set number 2
+set = 2
+textMatrix =  paste(signif(moduleTraitCor[[set]], 2), "\n(",
+                           signif(moduleTraitPvalue[[set]], 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor[[set]])
+sizeGrWindow(10,7)
+pdf(file = "help3.pdf", wi = 10, he = 7);
+par(mar = c(6, 8.8, 3, 2.2));
+labeledHeatmap(Matrix = moduleTraitCor[[set]],
+               xLabels = names(Traits[[set]]$data),
+               yLabels = MEColorNames,
+               ySymbols = MEColorNames,
+               colorLabels = FALSE,
+               colors = blueWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.3,
+               zlim = c(-1,1),
+               main = paste("Module--trait relationships in", setLabels[set]))
+set = 3
+textMatrix =  paste(signif(moduleTraitCor[[set]], 2), "\n(",
+                           signif(moduleTraitPvalue[[set]], 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor[[set]])
+sizeGrWindow(10,7)
+pdf(file = "help13.pdf", wi = 10, he = 7);
+par(mar = c(6, 8.8, 3, 2.2));
+labeledHeatmap(Matrix = moduleTraitCor[[set]],
+               xLabels = names(Traits[[set]]$data),
+               yLabels = MEColorNames,
+               ySymbols = MEColorNames,
+               colorLabels = FALSE,
+               colors = blueWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.3,
+               zlim = c(-1,1),
+               main = paste("Module--trait relationships in", setLabels[set]))
+dev.off()
+dev.off();
+
+```
+
+```{r}
+# Initialize matrices to hold the consensus correlation and p-value
+consensusCor = matrix(NA, nrow(moduleTraitCor[[1]]), ncol(moduleTraitCor[[1]]));
+consensusPvalue = matrix(NA, nrow(moduleTraitCor[[1]]), ncol(moduleTraitCor[[1]]));
+# Find consensus negative correlations
+negative = !is.na(moduleTraitCor[[1]] < 0 & moduleTraitCor[[2]] < 0 & moduleTraitCor[[3]] < 0);
+consensusCor[negative] = pmax(moduleTraitCor[[1]][negative], moduleTraitCor[[2]][negative], moduleTraitCor[[3]][negative])
+consensusPvalue[negative] = pmax(moduleTraitPvalue[[1]][negative], moduleTraitPvalue[[2]][negative], moduleTraitPvalue[[3]][negative])
+# Find consensus positive correlations
+positive = !is.na(moduleTraitCor[[1]] > 0 & moduleTraitCor[[2]] > 0 & moduleTraitCor[[3]] > 0);
+consensusCor[positive] = pmin(moduleTraitCor[[1]][positive], moduleTraitCor[[2]][positive], moduleTraitCor[[3]][positive]);
+consensusPvalue[positive] = pmax(moduleTraitPvalue[[1]][positive], moduleTraitPvalue[[2]][positive], moduleTraitPvalue[[3]][positive])
+```
+
+
+```{r}
+textMatrix =  paste(signif(consensusCor, 2), "\n(",
+                           signif(consensusPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor[[set]])
+sizeGrWindow(10,7)
+pdf(file = "cons.pdf", wi = 10, he = 7);
+par(mar = c(6, 8.8, 3, 2.2));
+labeledHeatmap(Matrix = consensusCor,
+               xLabels = names(Traits[[set]]$data),
+               yLabels = MEColorNames,
+               ySymbols = MEColorNames,
+               colorLabels = FALSE,
+               colors = blueWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Consensus module--trait relationships across\n",
+                            paste(setLabels, collapse = " and ")))
+
+getwd()
+```
+
+```{r}
+targets3 <- targets2 %>%
+  mutate(condition2 = paste0(gt, "_", disease, "_", water, "_", day ))
+condition2 <- factor(targets3$condition2)
+design2<- model.matrix(~0 + condition2)
+rownames(design2) <- targets3$sample
+sampleTable2 <- targets3
+rownames(sampleTable2) <- targets3$sample
+View(sampleTable2)
+rownames(sampleTable2) %in% colnames(txitx$counts) #TRUE
+rownames(sampleTable2) == colnames(txitx$counts) #FALSE
+txitx$counts <- txitx$counts[, rownames(sampleTable)]
+rownames(sampleTable2) == colnames(txitx$counts) #TRUE now
+dds2 <- DESeqDataSetFromMatrix(round(txitx$counts), sampleTable2, ~condition2)
+```
+
+
+```{r}
+sampleTable <- targets2
+rownames(sampleTable) <- targets2$sample
+```
+
+```{r}
+sampleTable2 <- read_csv("mysampletable2.txt")
+gt <- relevel(factor(sampleTable2$gt), ref="wt")
+disease <- relevel(factor(sampleTable2$disease), ref="pdb")
+water <- relevel(factor(sampleTable2$water), ref="dry")
+day <- relevel(factor(sampleTable2$day), ref="0")
+condition <- factor(sampleTable2$condition)
+design<- model.matrix(~0 + condition); rownames(design) <- targets2$sample
+```
+
+```{r}
+rownames(sampleTable) %in% colnames(txitx$counts) #TRUE
+rownames(sampleTable) == colnames(txitx$counts) #FALSE
+txitx$counts <- txitx$counts[, rownames(sampleTable)]
+rownames(sampleTable) == colnames(txitx$counts) #TRUE now
+```
+DESeq2 normalization
+```{r}
+dds <- DESeqDataSetFromMatrix(round(txitx$counts), sampleTable2, ~condition)
+```
+
+
+
+```{r}
+###FIGURE 9###
+
+v <- plotPCA(vsd, intgroup="condition") +
+  aes(color = disease, shape = gt, size = 0.01, alpha = 0.4)+
+  facet_grid(day)+
+      scale_color_manual(
+                     values = c("tomato",
+                                "darkorchid4",
+                                "black"))
+
+v1 <- plotPCA(vsd, intgroup="condition") +
+  #aes(color = disease, shape = gt, group = water, size = .2, alpha = 0.4)+
+  aes(color = disease, shape = gt, group = day, size = .2, alpha = 0.4)+
+        scale_color_manual(
+                     values = c("tomato",
+                                "darkorchid4",
+                                "black"))+
+  stat_ellipse(colour = "grey", size = 0.6)
+
+v2 <- plotPCA(vsd, intgroup="condition") +
+  aes(color = water, shape = gt, group = water, size = .2, alpha = 0.5)+
+  scale_color_manual(values=
+                       c("peru", "seagreen"))
+
+
+
+```
+
+
+Filtering.
+```{r}
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+table(keep)
+```
+
+
+```{r}
+
+#These didn't make it into the data. 
+#dds2 <- DESeq(dds2)
+bmr12FusDry0DAI <- results(dds2, contrast = c("condition2", "bmr12_fus_dry_0", "bmr12_pdb_dry_0"), lfcThreshold = 1, alpha = 0.1)
+bmr12vWT0DAI <- results(dds2, contrast = c("condition2",  "bmr12_pdb_dry_0", "wt_pdb_dry_0"), lfcThreshold = 1, alpha = 0.1)
+bmr12vWTPDBWet0DAI <- results(dds2, contrast = c("condition2", "bmr12_pdb_wet_0", "wt_pdb_wet_0"), lfcThreshold = 1, alpha = 0.1)
+bmr12vWT3DAI <- results(dds2, contrast = c("condition2", "bmr12_pdb_dry_3", "wt_pdb_dry_3"), lfcThreshold = 1, alpha = 0.1)
+bmr12vWTPDBWet3DAI <- results(dds2, contrast = c("condition2", "bmr12_pdb_wet_3", "wt_pdb_wet_3"), lfcThreshold = 1, alpha = 0.1)
+bmr6vWT3DAI <- results(dds2, contrast = c("condition2", "bmr6_pdb_dry_3", "wt_pdb_dry_3"), lfcThreshold = 1, alpha = 0.1)
+bmr6vWTPDBWet3DAI <- results(dds2, contrast = c("condition2", "bmr6_pdb_wet_3", "wt_pdb_wet_3" ), lfcThreshold = 1, alpha = 0.1)
+bmr12vWT13DAI <- results(dds2, contrast = c("condition2", "bmr12_pdb_dry_13", "wt_pdb_dry_13"), lfcThreshold = 1, alpha = 0.1)
+bmr12vWT13DAIWet <- results(dds2, contrast = c("condition2", "bmr12_pdb_wet_13", "wt_pdb_wet_13"), lfcThreshold = 1, alpha = 0.1)
+
+
+bmr12FusDry0DAI <- results(dds2, contrast = c("condition2", "bmr12_fus_dry_0", "bmr12_pdb_dry_0"), lfcThreshold = 1, alpha = 0.1)
+bmr12FusWet0DAI <- results(dds2, contrast = c("condition2", "bmr12_fus_wet_0", "bmr12_pdb_wet_0"), lfcThreshold = 1, alpha = 0.1)
+wtFus3DAIDry <- results(dds2, contrast = c("condition2", "wt_fus_dry_3", "wt_pdb_dry_3"), lfcThreshold = 1, alpha = 0.1)
+wtFus3DAIWet <- results(dds2, contrast = c("condition2", "wt_fus_wet_3", "wt_pdb_wet_3" ), lfcThreshold = 1, alpha = 0.1)
+wtMacro3DAIWet <- results(dds2, contrast = c("condition2", "wt_macro_wet_3", "wt_pdb_wet_3"), lfcThreshold = 1, alpha = 0.1)
+
+wtMacro3DAIDry <- results(dds2, contrast = c("condition2", "wt_macro_dry_3", "wt_pdb_dry_3"), lfcThreshold = 1, alpha = 0.1)
+
+bmr6Fus3DAIDry <- results(dds2, contrast = c("condition2", "bmr6_fus_dry_3", "bmr6_pdb_dry_3"), lfcThreshold = 1, alpha = 0.1)
+
+bmr6Fus3DAIWet <- results(dds2, contrast = c("condition2", "bmr6_fus_wet_3", "bmr6_pdb_wet_3"), lfcThreshold = 1, alpha = 0.1)
+
+
+bmr6Macro3DAIDry <- results(dds2, contrast = c("condition2", "bmr6_macro_dry_3", "bmr6_pdb_dry_3"), lfcThreshold = 1, alpha = 0.1)
+
+bmr6Macro3DAIWet <- results(dds2, contrast = c("condition2", "bmr6_macro_wet_3", "bmr6_pdb_wet_3"), lfcThreshold = 1, alpha = 0.1)
+
+bmr12Fus3DAIDry <- results(dds2, contrast = c("condition2", "bmr12_fus_dry_3", "bmr12_pdb_dry_3"), lfcThreshold = 1, alpha = 0.1)
+
+bmr12Fus3DAIWet <- results(dds2, contrast = c("condition2", "bmr12_fus_wet_3", "bmr12_pdb_wet_3"), lfcThreshold = 1, alpha = 0.1)
+
+bmr12Fus13DAIDry <- results(dds2, contrast = c("condition2", "bmr12_fus_dry_13", "bmr12_pdb_dry_13"), lfcThreshold = 1, alpha = 0.1)
+
+bmr12Fus13DAIWet <- results(dds2, contrast = c("condition2", "bmr12_fus_wet_13", "bmr12_pdb_wet_13"), lfcThreshold = 1, alpha = 0.1)
+
+wtFus13DAIDry <- results(dds2, contrast = c("condition2", "wt_fus_dry_13", "wt_pdb_dry_13"), lfcThreshold = 1, alpha = 0.1)
+
+wtFus13DAIWet <- results(dds2, contrast = c("condition2", "wt_fus_wet_13", "wt_pdb_wet_13"), lfcThreshold = 1, alpha = 0.1)
+
+lesionContrast <- results(dds2, contrast = c("condition2", "bmr12_fus_dry_13", "bmr12_fus_wet_13"), lfcThreshold = 1, alpha = 0.1)
+
+
+```
+
+
+```{r}
+consMEs.unord = multiSetMEs(multiExprday, universalColors = moduleLabels, excludeGrey = FALSE)
+GS = list();
+kME = list();
+for (set in 1:nSets)
+{
+  GS[[set]] = corAndPvalue(multiExprday[[set]]$data, Traits[[set]]$data);
+  kME[[set]] = corAndPvalue(multiExprday[[set]]$data, consMEs.unord[[set]]$data);
+}
+```
+
+```{r}
+GS.metaZ = (GS[[1]]$Z + GS[[2]]$Z + GS[[3]]$Z)/sqrt(3)
+kME.metaZ = (kME[[1]]$Z + kME[[2]]$Z + kME[[3]]$Z)/sqrt(3)
+GS.metaP = 2*pnorm(abs(GS.metaZ), lower.tail = FALSE);
+kME.metaP = 2*pnorm(abs(kME.metaZ), lower.tail = FALSE)
+```
+
+```{r}
+GSmat = rbind(GS[[1]]$cor, GS[[2]]$cor, GS[[3]]$cor, GS[[1]]$p, GS[[2]]$p, GS[[3]]$p, GS.metaZ, GS.metaP)
+nTraits = checkSets(Traits)$nGenes
+traitNames = colnames(Traits[[1]]$data)
+dim(GSmat) = c(nGenes, 8*nTraits) #What was this for anyway?
+rownames(GSmat) = probes;
+colnames(GSmat) = spaste(c("GS.set1.", "GS.set2.", "GS.set3.", "p.GS.set1.", "p.GS.set2.", "p.GS.set3.", "Z.GS.meta.", "p.GS.meta."), rep(traitNames, rep(8, nTraits)))
+# Same code for kME:
+kMEmat = rbind(kME[[1]]$cor, kME[[2]]$cor, kME[[3]]$cor, kME[[1]]$p, kME[[2]]$p, kME[[3]]$p, kME.metaZ, kME.metaP);
+MEnames = colnames(consMEs[[1]]$data);
+nMEs = checkSets(consMEs)$nGenes
+dim(kMEmat) = c(nGenes, 8*nMEs)
+rownames(kMEmat) = probes;
+colnames(kMEmat) = spaste(
+  c("kME.set1.", "kME.set2.", "kME.set3.", "p.kME.set1.", "p.kME.set2.", "p.kME.set3.", "Z.kME.meta.", "p.kME.meta."), 
+  rep(MEColors, (rep(8, nMEs))))
+```
+
+```{r}
+info = data.frame(Probe = probes, 
+                  ModuleLabel = moduleLabels,
+                  ModuleColor = labels2colors(moduleLabels),
+                  GSmat,
+                  kMEmat)
+
+myinfo <- merge(x = phytoncbi, y = info, by = "Probe", all.y = TRUE)
+myinfo <- merge(x = phytogenbank, y = myinfo, by = "Probe", all.y = TRUE)
+dflines <- merge(x = myinfo, y = mydeflines[mydeflines$Probe %in% myconsinfo$Probe,], by = "Probe", all.y=TRUE, all.x = TRUE)
+dflines <- merge(x = dflines, y = ncbideflines[ncbideflines$RefSeq %in% myconsinfo$RefSeq,], by = "RefSeq", all.y=TRUE, all.x = TRUE)
+
+dflines <- as_tibble(dflines) 
+```
+
+
+```{r}
+consMEsC = multiSetMEs(multiExprday, universalColors = moduleColors)
+```
+
+
+
+
+
+```{r}
+mydatTraits <- as_tibble(rownames_to_column(datTraits)) %>%
+  rename("sample.name" = "rowname")
+
+mytargets2 <- as_tibble(targets2) %>%
+  rename("sample.name" = "sample")
+
+myMEs <- consMEsC
+```
+
+```{r}
+coolMEs0DAI <- as_tibble(myMEs[[1]]$data) %>% 
+  select(MEgreen, MEred, MElightgreen, MEdarkturquoise) %>%
+  add_column(sample.name = rownames(day0), .before = 1) %>%
+  add_column(dai = rep("day0", 16)) %>%
+  left_join(mydatTraits) %>%
+  left_join(mytargets2)
+coolMEs3DAI <- as_tibble(myMEs[[2]]$data) %>% 
+  select(MEgreen, MEred, MElightgreen, MEdarkturquoise) %>%
+  add_column(sample.name = rownames(day3), .before = 1) %>%
+   add_column(dai = rep("day3", 84)) %>%
+  left_join(mydatTraits) %>%
+  left_join(mytargets2)
+coolMEs13DAI <- as_tibble(myMEs[[3]]$data) %>% 
+  select(MEgreen, MEred, MElightgreen, MEdarkturquoise) %>%
+  add_column(sample.name = rownames(day13), .before = 1) %>%
+  add_column(dai = rep("day13", 29)) %>%
+  left_join(mydatTraits) %>%
+  left_join(mytargets2)
+
+mycoolMEs <- union(coolMEs3DAI, coolMEs13DAI)
+mycoolMEs <- union(coolMEs0DAI, mycoolMEs)
+```
+
+
+```{r}
+###Figure 6#####
+
+mygreen <- ggplot(mycoolMEs, aes (x = log(lesion.mm + 1, base = 2), y = MEgreen, color = disease, shape = dai))+
+  geom_point(size = 2, stat = "identity", alpha = 0.5)+
+  facet_grid(c("water", "gt"))+
+      theme(panel.background = element_rect(fill = alpha("saddlebrown", alpha = 0.1)))+
+  theme(axis.text.x = element_text(angle = 40, hjust = 1, size = 8), 
+        panel.grid.major = element_line(colour = alpha("grey60", alpha = 0.5), size = 0.4),
+        panel.grid.minor = element_line(colour = alpha("grey60", alpha = 0.3), size = 0.2),
+        panel.spacing = unit(0.8, "lines"),
+        strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(size = 12, face = "bold"))+
+  geom_hline(yintercept = 0, alpha = 0.3)+
+    scale_color_manual(
+                     values = c("darkorchid4",
+                                "black",
+                                "tomato"))+
+  theme(legend.position = "none")
+
+
+myred <- ggplot(mycoolMEs, aes (x = log(lesion.mm + 1, base = 2), y = MEred, color = disease, shape = dai))+
+  geom_point(size = 2, stat = "identity", alpha = 0.5)+
+  facet_grid(c("water", "gt"))+
+      theme(panel.background = element_rect(fill = alpha("saddlebrown", alpha = 0.1)))+
+  theme(axis.text.x = element_text(angle = 40, hjust = 1, size = 8), 
+        panel.grid.major = element_line(colour = alpha("grey60", alpha = 0.5), size = 0.4),
+        panel.grid.minor = element_line(colour = alpha("grey60", alpha = 0.3), size = 0.2),
+        panel.spacing = unit(0.8, "lines"),
+        strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(size = 12, face = "bold"))+
+  geom_hline(yintercept = 0, alpha = 0.3)+
+    scale_color_manual(
+                     values = c("darkorchid4",
+                                "black",
+                                "tomato"))+
+  theme(legend.position = "none")
+
+mylightgreen <- ggplot(mycoolMEs, aes (x = log(lesion.mm + 1, base = 2), y = MElightgreen, color = disease, shape = dai))+
+  geom_point(size = 2, stat = "identity", alpha = 0.5)+
+  facet_grid(c("water", "gt"))+
+      theme(panel.background = element_rect(fill = alpha("saddlebrown", alpha = 0.1)))+
+  theme(axis.text.x = element_text(angle = 40, hjust = 1, size = 8), 
+        panel.grid.major = element_line(colour = alpha("grey60", alpha = 0.5), size = 0.4),
+        panel.grid.minor = element_line(colour = alpha("grey60", alpha = 0.3), size = 0.2),
+        panel.spacing = unit(0.8, "lines"),
+        strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(size = 12, face = "bold"))+
+  geom_hline(yintercept = 0, alpha = 0.3)+
+    scale_color_manual(
+                     values = c("darkorchid4",
+                                "black",
+                                "tomato"))+
+  theme(legend.position = "none")
+
+mydarkturquoise <- ggplot(mycoolMEs, aes (x = log(lesion.mm + 1, base = 2), y = MEdarkturquoise, color = disease, shape = dai))+
+  geom_point(size = 2, stat = "identity", alpha = 0.5)+
+  facet_grid(c("water", "gt"))+
+      theme(panel.background = element_rect(fill = alpha("saddlebrown", alpha = 0.1)))+
+  theme(axis.text.x = element_text(angle = 40, hjust = 1, size = 8), 
+        panel.grid.major = element_line(colour = alpha("grey60", alpha = 0.5), size = 0.4),
+        panel.grid.minor = element_line(colour = alpha("grey60", alpha = 0.3), size = 0.2),
+        panel.spacing = unit(0.8, "lines"),
+        strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(size = 12, face = "bold"))+
+  geom_hline(yintercept = 0, alpha = 0.3)+
+    scale_color_manual(
+                     values = c("darkorchid4",
+                                "black",
+                                "tomato")) #+
+  theme(legend.position = "none")
+  
+
+plot_grid(mygreen, myred, mylightgreen, mydarkturquoise)
+```
+
+
+```{r}
+mylesioninfo <- read_csv("lesioninfo.csv") %>% #this is just a csv'd version of the first sheet of Data S6.
+  select_if(~sum(!is.na(.)) > 0)
+
+cwnogrey <- mylesioninfo %>%
+  filter(ModuleColor != "grey") 
+
+cwnogrey <- as.data.frame(cwnogrey) #lol
+rownames(cwnogrey) <- paste(mylesioninfo$Probe, mylesioninfo$Comments)
+
+dim(mylesioninfo)
+```
+
+
+
+
+```{r}
+daylesion <- cwnogrey %>%
+  select(starts_with("GeneSig.0DAI"))%>% #switch between days here. Meta Z-scores start with Z
+  select_if(~sum(!is.na(.)) > 0) %>%
+  select(-contains("Sections"))
+
+
+daylesion <- cwnogrey %>%
+  select(starts_with("p.GeneSig.0DAI"))%>% #p values for Z-scores start with p.meta.Z
+  select_if(~sum(!is.na(.)) > 0) %>%
+  select(-contains("Sections"))
+
+daylesion2 <- as.matrix(daylesion)
+rownames(cwnogrey) <- paste(cwnogrey$Probe, cwnogrey$Comments)
+#need to include rownames because these are base R graphics oh my god
+
+mysig <- unlist(daylesion)
+mysig <- as.numeric(mysig)
+mysig <- matrix(mysig, nrow = 71) #number of lesion-related genes, which are the rows in the data frame
+
+pmat <- symnum(mysig, corr = FALSE, na = FALSE, 
+               cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1), 
+               symbols = c("***", "**", "*", ".", " "))
+
+###HEATMAP FIGURE###
+
+#Colv = NA, Rowv = NA, key = FALSE,
+
+#day0 no clust
+heatmap.2(as.matrix(daylesion2), density.info="none", col = Colors, cellnote = pmat, notecex = 0.5, dendrogram="none", trace = "none", notecol = "black", cexRow = 0.5, srtCol = -18, cexCol = 0.5, offsetCol = c(-27.5, -27.5), offsetRow = c(-25, 1), lhei = c(1,5), lwid = c(2,1))
+
+#day3
+heatmap.2(as.matrix(daylesion2), density.info="none", cellnote = pmat, notecex = 0.5, col = Colors,  dendrogram="none", trace = "none",  key = FALSE, notecol = "black", cexRow = 0.5, srtCol =-23, offsetRow =  c(-36, 1), offsetCol = c(-23,-23), cexCol = 0.4)
+
+#day13
+heatmap.2(as.matrix(daylesion2), density.info="none", cellnote = pmat, col = Colors,  dendrogram="none", trace = "none",  key = FALSE, notecol = "black", cexRow = 0.5, srtCol =-21, cexCol = 0.6, offsetCol = c(-31, -31), offsetRow = c(-27, 1), lhei = c(.5,5), lwid = c(2,2))
+
+#meta
+heatmap.2(as.matrix(daylesion2), density.info="none", cellnote = pmat, notecol = "black", notecex = 0.3, col = Colors, dendrogram="none", trace = "none", key = FALSE, offsetRow = c(-36, 1), offsetCol = c(-24, -24), srtCol = -23, cexCol = 0.3, cexRow = 0.6)
+```
+
+
+
