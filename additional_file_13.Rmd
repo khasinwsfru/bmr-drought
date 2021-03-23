@@ -1,0 +1,267 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(car)
+library(psych)
+library(tidyverse)
+library(nlme)
+library(lmerTest)
+library(XNomial)
+library(ggcorrplot)
+```
+
+
+ 
+bmr12 was disproportionately culled because it bloomed too late/did not bloom
+```{r}
+
+#23 bmr-12s didn't bloom
+#5 bmr-6s didn't bloom
+#all wt bloomed
+
+
+expected <- c(1/3, 1/3, 1/3)
+observed <- c(23, 5, 0)
+xmulti(observed,
+       expected, 
+       detail = 2)
+#P value (Chisq) =  7.238e-08
+
+
+```
+
+
+Filter out everything but Day 13.
+
+```{r}
+allbloom <- # read.csv(file path to DATA S1, sheet 1) 
+
+day13lesions <- mylesions %>% 
+  filter(Timepoint == "13DAI" & Rep != "R10") %>%
+  drop_na()
+```
+
+
+
+
+Plotting the 13 DAI lesions.
+```{r}
+###FIGURE 2###
+
+day13lesions$Water = factor(day13lesions$Water, levels = c("dry", "wet"))
+day13lesions$Treatment = factor(day13lesions$Treatment, levels = c("PDB", "H03-11-9", "MP01-001"))
+day13lesions$bmr = factor(day13lesions$bmr, levels = c("wildtype", "bmr-12", "bmr-6"))
+
+
+lesionplot2 <- ggplot(day13lesions, (aes(x = bmr, y = lesion.mm, color = Water)))+
+  geom_boxplot(alpha = 0.3, outlier.shape = NA)+
+  geom_point(shape = 19, size = 2, stat = "identity", alpha = 0.5, position = position_jitterdodge(dodge.width = .6, jitter.width = .4))+
+  theme(panel.background = element_rect(fill = alpha("saddlebrown", alpha = 0.1)))+
+  scale_x_discrete(labels = c("wild-type", "bmr12", "bmr6"))+
+  ylab("Lesion length (mm)")+
+  facet_wrap(day13lesions$Treatment)+
+  theme(axis.text.x = element_text(angle = 40, hjust = 1, size = 8), 
+        panel.grid.major = element_line(colour = alpha("grey60", alpha = 0.5), size = 0.4),
+        panel.grid.minor = element_line(colour = alpha("grey60", alpha = 0.3), size = 0.2),
+        panel.spacing = unit(0.8, "lines"),
+        strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(size = 12, face = "bold"))+
+  scale_color_manual(name="Water", 
+                        labels = c("dry", 
+                                   "wet"),
+                     values = c("peru",
+                                "seagreen"))
+
+
+```
+
+
+
+Phenolics analysis
+```{r}
+
+msdata <- read_csv("phenolics-data-table.csv")
+msdata2 <- read_csv("phenolics-data-table2.csv")[1:29,] #categorical
+
+myusefuldata <- msdata %>%
+  select(-LODgroup.desc, -Rep, -LODbloom, -Planted, -Bloom, -LODplant, -bmr, -Treatment, -Water, -log2lesion, -log2daystobloom, -nr.sec)
+
+myusefuldata2 <- msdata2 %>%
+  select(-LODgroup.desc, -Rep, -LODbloom, -LODplant, -ln.lesion, -daystobloom)
+```
+
+
+Is IAA-Asp detected disproportionately in infected plants? (Can't say.)
+```{r}
+
+myIAA.Asp <- myusefuldata2 %>%
+  filter(IAA.Asp > 0) %>%
+  select(Treatment, lesion.mm)
+
+
+expected <- c(1/2, 1/2)
+observed <- c(3,9)
+xmulti(observed,
+       expected, 
+       detail = 2)
+
+# P = 0.16
+```
+
+
+
+Correlation plot.
+```{r}
+###FIGURE 3###
+cor.fdr2 <- mynewdf %>%
+  corr.test(adjust="fdr", method="pearson")
+mycp <- ggcorrplot(cor.fdr2$r, p.mat = cor.fdr2$p, sig.level = 0.1, hc.order = TRUE)
+mycp + theme_grey(base_size = 8) + theme(axis.text.x=element_text(angle=60,hjust=1))
+```
+
+
+
+```{r}
+myusefuldata2$Treatment <- relevel(factor(myusefuldata2$Treatment), ref = "PDB")
+```
+
+
+```{r}
+shapiro.test(myusefuldata2$GA19) #for all metabolites. T-tests are robust but it's easy to use a rank-sum test in case.
+wilcox.test(GA19~bmr, data=myusefuldata2, exact = FALSE)
+wilcox.test(GA53~bmr, data=myusefuldata2, exact = FALSE)
+wilcox.test(JA~bmr, data=myusefuldata2, exact = FALSE) 
+wilcox.test(SA~bmr, data=myusefuldata2, exact = FALSE)
+wilcox.test(Sol.Sinapic.acid~bmr, data=myusefuldata2, exact = FALSE) 
+wilcox.test(Sol.Syringic.acid~bmr, data=myusefuldata2, exact = FALSE)
+wilcox.test(WB.Syringic.acid~bmr, data=myusefuldata2, exact = FALSE)
+```
+
+
+
+
+```{r}
+
+##FIGURE 4### 
+myWBSyrA <- ggplot(myusefuldata2, aes(x = bmr, y = WB.Syringic.acid, color = Treatment))+
+  geom_boxplot(alpha = 0.3, outlier.shape = NA)+
+  geom_point(shape = 19, size = 2, stat = "identity", alpha = 0.5, position = position_jitterdodge(dodge.width = .6, jitter.width = .4))+
+  #geom_jitter(position = position_jitterdodge())+
+  theme(panel.background = element_rect(fill = alpha("saddlebrown", alpha = 0.1)))+
+  facet_wrap("Water")+
+theme(axis.text.x = element_text(angle = 40, hjust = 1, size = 8), 
+        panel.grid.major = element_line(colour = alpha("grey60", alpha = 0.5), size = 0.4),
+        panel.grid.minor = element_line(colour = alpha("grey60", alpha = 0.3), size = 0.2),
+        panel.spacing = unit(0.8, "lines"),
+        strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(size = 12, face = "bold"))+
+  scale_color_manual(name="Genotype", 
+                        labels = c("bmr12", 
+                                   "wildtype"),
+                     values = c("tomato",
+                                "darkorchid4"))+
+  theme(legend.position = "none")
+
+
+  mySolSyrA <- ggplot(myusefuldata2, aes(x = bmr, y = Sol.Syringic.acid, color = Treatment))+
+  geom_boxplot(alpha = 0.3, outlier.shape = NA)+
+  geom_point(shape = 19, size = 2, stat = "identity", alpha = 0.5, position = position_jitterdodge(dodge.width = .6, jitter.width = .4))+
+  #geom_jitter(position = position_jitterdodge())+
+  theme(panel.background = element_rect(fill = alpha("saddlebrown", alpha = 0.1)))+
+  facet_wrap("Water")+
+theme(axis.text.x = element_text(angle = 40, hjust = 1, size = 8), 
+        panel.grid.major = element_line(colour = alpha("grey60", alpha = 0.5), size = 0.4),
+        panel.grid.minor = element_line(colour = alpha("grey60", alpha = 0.3), size = 0.2),
+        panel.spacing = unit(0.8, "lines"),
+        strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(size = 12, face = "bold"))+
+  scale_color_manual(name="Genotype", 
+                        labels = c("bmr12", 
+                                   "wildtype"),
+                     values = c("tomato",
+                                "darkorchid4"))+
+    theme(legend.position = "none")
+  
+mySolSiA <- ggplot(myusefuldata2, aes(x = bmr, y = Sol.Sinapic.acid, color = Treatment))+
+  geom_boxplot(alpha = 0.3, outlier.shape = NA)+
+  geom_point(shape = 19, size = 2, stat = "identity", alpha = 0.5, position = position_jitterdodge(dodge.width = .6, jitter.width = .4))+
+  #geom_jitter(position = position_jitterdodge())+
+  theme(panel.background = element_rect(fill = alpha("saddlebrown", alpha = 0.1)))+
+  facet_wrap("Water")+
+theme(axis.text.x = element_text(angle = 40, hjust = 1, size = 8), 
+        panel.grid.major = element_line(colour = alpha("grey60", alpha = 0.5), size = 0.4),
+        panel.grid.minor = element_line(colour = alpha("grey60", alpha = 0.3), size = 0.2),
+        panel.spacing = unit(0.8, "lines"),
+        strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(size = 12, face = "bold"))+
+  scale_color_manual(name="Genotype", 
+                        labels = c("bmr12", 
+                                   "wildtype"),
+                     values = c("tomato",
+                                "darkorchid4"))+
+  theme(legend.position = "none")
+
+myGA19 <- ggplot(myusefuldata2, aes(x = bmr, y = GA19, color = Treatment))+
+  geom_boxplot(alpha = 0.3, outlier.shape = NA)+
+  geom_point(shape = 19, size = 2, stat = "identity", alpha = 0.5, position = position_jitterdodge(dodge.width = .6, jitter.width = .4))+
+  #geom_jitter(position = position_jitterdodge())+
+  theme(panel.background = element_rect(fill = alpha("saddlebrown", alpha = 0.1)))+
+  facet_wrap("Water")+
+theme(axis.text.x = element_text(angle = 40, hjust = 1, size = 8), 
+        panel.grid.major = element_line(colour = alpha("grey60", alpha = 0.5), size = 0.4),
+        panel.grid.minor = element_line(colour = alpha("grey60", alpha = 0.3), size = 0.2),
+        panel.spacing = unit(0.8, "lines"),
+        strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(size = 12, face = "bold"))+
+  scale_color_manual(name="Genotype", 
+                        labels = c("bmr12", 
+                                   "wildtype"),
+                     values = c("tomato",
+                                "darkorchid4"))+
+  theme(legend.position = "none")
+
+myJA <- ggplot(myusefuldata2, aes(x = bmr, y = JA, color = Treatment))+
+  geom_boxplot(alpha = 0.3, outlier.shape = NA)+
+  geom_point(shape = 19, size = 2, stat = "identity", alpha = 0.5, position = position_jitterdodge(dodge.width = .6, jitter.width = .4))+
+  #geom_jitter(position = position_jitterdodge())+
+  theme(panel.background = element_rect(fill = alpha("saddlebrown", alpha = 0.1)))+
+  facet_wrap("Water")+
+theme(axis.text.x = element_text(angle = 40, hjust = 1, size = 8), 
+        panel.grid.major = element_line(colour = alpha("grey60", alpha = 0.5), size = 0.4),
+        panel.grid.minor = element_line(colour = alpha("grey60", alpha = 0.3), size = 0.2),
+        panel.spacing = unit(0.8, "lines"),
+        strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(size = 12, face = "bold"))+
+  scale_color_manual(name="Genotype", 
+                        labels = c("bmr12", 
+                                   "wildtype"),
+                     values = c("tomato",
+                                "darkorchid4"))+
+   theme(legend.position = "none")
+
+mySA <- ggplot(myusefuldata2, aes(x = bmr, y = SA, color = Treatment))+
+  geom_boxplot(alpha = 0.3, outlier.shape = NA)+
+  geom_point(shape = 19, size = 2, stat = "identity", alpha = 0.5, position = position_jitterdodge(dodge.width = .6, jitter.width = .4))+
+  #geom_jitter(position = position_jitterdodge())+
+  theme(panel.background = element_rect(fill = alpha("saddlebrown", alpha = 0.1)))+
+  theme(axis.text.x = element_text(angle = 40, hjust = 1, size = 8), 
+        panel.grid.major = element_line(colour = alpha("grey60", alpha = 0.5), size = 0.4),
+        panel.grid.minor = element_line(colour = alpha("grey60", alpha = 0.3), size = 0.2),
+        panel.spacing = unit(0.8, "lines"),
+        strip.background = element_rect(fill = "white"),
+        strip.text.x = element_text(size = 12, face = "bold"))+
+  facet_wrap("Water")+
+  scale_color_manual(name="Genotype", 
+                        labels = c("bmr12", 
+                                   "wildtype"),
+                     values = c("tomato",
+                                "darkorchid4"))+
+  theme(legend.position = "none")
+  
+
+
+
+```
